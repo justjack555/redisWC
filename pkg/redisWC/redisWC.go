@@ -12,6 +12,31 @@ type RedisWC struct {
 	file *os.File
 }
 
+const (
+	SONG_WORDS = "song_words"
+)
+
+func getFile() *os.File {
+	if len(os.Args) != 2 {
+		log.Fatalln("Usage: ./redis <file_path>")
+	}
+
+	path := os.Args[1]
+	file, err := os.Open(path)
+	if err != nil {
+		log.Fatal("getFile(): Unable to open file ", err)
+	}
+
+	return file
+}
+
+func closeFile(f *os.File){
+	if err := f.Close(); err != nil {
+		log.Fatalln("Unable to close file: ", err)
+	}
+}
+
+
 /**
 	Initialize new Redis Word Counter
  */
@@ -25,13 +50,13 @@ func New(redisConn *redis.Client, file *os.File) *RedisWC {
 }
 
 func (rc *RedisWC) incr(word string) error {
-	res, err := rc.redisConn.Incr(word).Result()
+	_, err := rc.redisConn.Incr(word).Result()
 	if err != nil {
 		log.Println("incr(): Unable to increment key: ", word, "; Incrementing error count")
 		return err
 	}
 
-	log.Println("incr(): Successfully added word: ", word, " with res: ", res)
+//	log.Println("incr(): Successfully added word: ", word, " with res: ", res)
 	return nil
 }
 
@@ -56,6 +81,76 @@ func (rc *RedisWC) scanAndStore() (int, int) {
 	}
 
 	return i, errCount
+}
+
+func (rc *RedisWC) spawnStream(streamChan chan string, doneChan chan bool) {
+	f := getFile()
+	defer closeFile(f)
+
+	rc.file = f
+
+	sc := bufio.NewScanner(rc.file)
+	sc.Split(bufio.ScanWords)
+
+	for sc.Scan() {
+		word := sc.Text()
+		streamChan <- word
+	}
+
+	if err := sc.Err(); err != nil {
+		log.Println("spawnStream(): Error reading input:", err)
+	}
+
+//	time.Sleep(1 * time.Second)
+
+	doneChan <- true
+}
+
+func (rc *RedisWC) startMerger(streamChan chan string) {
+	errCount := 0
+	count := 0
+	for v := range streamChan {
+		_, err := rc.redisConn.LPush(SONG_WORDS, v).Result()
+		if err != nil {
+			log.Println("startMerger(): Error with LPush:", err)
+			errCount++
+		}
+
+		count++
+	}
+
+	log.Println("startMerger(): Stored ", count - errCount, " words with ", errCount, " errors.")
+}
+
+func (rc *RedisWC) SpawnStreams(n int) {
+	streamChan := make(chan string)
+	doneChan := make(chan bool)
+
+	for i := 0; i < n; i++ {
+		log.Println("SpawnStreams(): Spawning ", i, "th stream")
+		go rc.spawnStream(streamChan, doneChan)
+	}
+
+//	log.Println("SpawnStreams(): Starting merger receiver")
+	go rc.startMerger(streamChan)
+
+	for i := 0; i < n; i++ {
+		<- doneChan
+//		log.Println("SpawnStreams(): Received ", i, "th ack to done chan")
+	}
+
+
+	close(doneChan)
+	close(streamChan)
+}
+
+func (rc *RedisWC) PrintInfiniteStreamLen()  {
+	res, err := rc.redisConn.LLen(SONG_WORDS).Result()
+	if err != nil {
+		log.Println("startMerger(): Error with LLen:", err)
+		return
+	}
+	log.Println("printInfiniteStreamLen(): Length of stream is: ", res)
 }
 
 func (rc *RedisWC) StoreWordCounts() {

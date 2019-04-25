@@ -33,12 +33,27 @@ func closeFile(f *os.File){
 	}
 }
 
-func main(){
-	redisDb := getRedisConn()
-
+func testWordCount(redisDb *redis.Client) {
 	f := getFile()
 	defer closeFile(f)
 
 	rc := redisWC.New(redisDb, f)
 	rc.StoreWordCounts()
+}
+
+func testMergeStreams(redisDb *redis.Client) {
+
+	rc := redisWC.New(redisDb, nil)
+
+	rc.SpawnStreams(2)
+	rc.PrintInfiniteStreamLen()
+}
+
+func main(){
+	redisDb := getRedisConn()
+
+	testWordCount(redisDb)
+	testMergeStreams(redisDb)
+
+
 }
