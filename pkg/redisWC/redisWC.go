@@ -56,7 +56,6 @@ func (rc *RedisWC) incr(word string) error {
 		return err
 	}
 
-//	log.Println("incr(): Successfully added word: ", word, " with res: ", res)
 	return nil
 }
 
@@ -101,8 +100,6 @@ func (rc *RedisWC) spawnStream(streamChan chan string, doneChan chan bool) {
 		log.Println("spawnStream(): Error reading input:", err)
 	}
 
-//	time.Sleep(1 * time.Second)
-
 	doneChan <- true
 }
 
@@ -131,12 +128,10 @@ func (rc *RedisWC) SpawnStreams(n int) {
 		go rc.spawnStream(streamChan, doneChan)
 	}
 
-//	log.Println("SpawnStreams(): Starting merger receiver")
 	go rc.startMerger(streamChan)
 
 	for i := 0; i < n; i++ {
 		<- doneChan
-//		log.Println("SpawnStreams(): Received ", i, "th ack to done chan")
 	}
 
 
